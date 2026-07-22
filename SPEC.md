@@ -44,11 +44,11 @@ Register via `ClientCommandRegistrationCallback.EVENT` using `ClientCommands.lit
 - `color` (optional, all three forms): one of Minecraft's 16 dye color names (`white|orange|magenta|light_blue|yellow|lime|pink|gray|light_gray|cyan|purple|blue|brown|green|red|black`, case-insensitive, suggestions offered; RGB from `DyeColor.getTextureDiffuseColor()`), or a 6-digit hex `RRGGBB` **without** a leading `#` (brigadier word arguments only allow `[0-9A-Za-z_\-.+]`, so `#` cannot be typed). Name match is tried first, then hex. Alpha is always forced opaque. Omitted → default `0xFFFF2020`. Unknown color → clean error listing the options.
 - yaw/pitch: float arguments, Minecraft convention (yaw degrees, pitch −90..90).
 - Raycast: from the player's eye position, distance **100** blocks, blocks only (ignore fluids), `ClipContext` with OUTLINE shape / NONE fluid. If nothing hit → `sendError("Not looking at a block")`.
-- If forced `facing` differs from the hit face: intersect the same ray with the plane of the forced face of the hit block, clamp the in-plane coordinates to the block bounds, derive the pixel from that intersection.
+- If forced `facing` differs from the hit face: intersect the same ray with the plane of the forced face of the hit block, clamp the in-plane coordinates to the block bounds, derive the pixel from that intersection. This is the *same* ray/cube-plane projection used for the auto/hit face (§3.2) — both share one code path.
 
 ### 3.2 Pixel (texel) math
 
-From `BlockHitResult`: `getBlockPos()`, `getDirection()`, `getLocation()`. Let `rel = hitPos − blockPos` (components in 0..1). Face → (u,v) plane:
+From `BlockHitResult`: `getBlockPos()`, `getDirection()`, `getLocation()`. The texel is derived from the point where the **aim ray meets the full block-cube plane** of the target face — **not** from the raw hit point. Let `face` = `getDirection()` (or the forced `facing`), and let `P` = the intersection of the eye→look ray with that face's cube-boundary plane (the axis coordinate equals `blockPos + {0 for a negative face, 1 for a positive face}`); if the ray is parallel to or behind that plane, fall back to projecting `getLocation()` orthogonally onto it. Then `rel = clamp01(P − blockPos)` (components in 0..1). Face → (u,v) plane:
 
 | Face axis | u | v |
 |---|---|---|
@@ -57,6 +57,8 @@ From `BlockHitResult`: `getBlockPos()`, `getDirection()`, `getLocation()`. Let `
 | EAST / WEST (X) | z | y |
 
 `u16 = clamp(floor(u*16), 0, 15)`, same for `v16`. A dot = `(BlockPos, Direction face, int u ∈ [0,15], int v ∈ [0,15], int argb)`. Default color: opaque red `0xFFFF2020`. Adding a dot that duplicates an existing `(pos, face, u, v)` replaces it (no duplicates).
+
+**Why project onto the cube plane instead of the raw hit point.** Dots always render on the full 1×1 cube face (§3.5). For a full block the ray meets the hit face exactly on the cube plane, so `P = getLocation()` and this is a no-op — normal blocks are unaffected. But for non-full-cube blocks (iron bars, panes, slabs, stairs, fences, walls, …) the `OUTLINE` raycast hits the block's thin **inner** voxel shape, which is inset from the cube boundary; using that raw inset hit point placed the texel where the dot was *not* drawn — visibly shoved toward a block edge (e.g. an iron bar dot flying to the far side). Projecting the aim ray onto the cube-boundary plane keeps placement consistent with the renderer, so the dot lands under the crosshair on every block shape. The auto (hit-face) and forced-`facing` (§3.1) paths are the same projection onto their respective faces and share one code path. (The dot still renders on the outer cube face, so on very thin blocks it sits at the cube boundary rather than glued to the inner voxel surface — an inherent property of the full-face texel model, not a placement error.)
 
 ### 3.3 World keying (the "world-data" mapping key)
 

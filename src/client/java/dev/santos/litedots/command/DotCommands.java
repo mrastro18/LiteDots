@@ -250,21 +250,18 @@ public final class DotCommands {
 		BlockPos blockPos = hit.getBlockPos();
 		Direction hitFace = hit.getDirection();
 
-		Direction face;
-		int u;
-		int v;
-		if (forcedFace == null || forcedFace == hitFace) {
-			face = hitFace;
-			Vec3 rel = hit.getLocation().subtract(blockPos.getX(), blockPos.getY(), blockPos.getZ());
-			int[] uv = Dot.faceUV(face, rel);
-			u = uv[0];
-			v = uv[1];
-		} else {
-			face = forcedFace;
-			int[] uv = intersectForcedFace(eyePos, direction, hit.getLocation(), blockPos, face);
-			u = uv[0];
-			v = uv[1];
-		}
+		// Texel placement always projects the aim ray onto the FULL block-cube plane of the target
+		// face (SPEC.md 3.2). The renderer draws every dot on the full 1x1 cube face, so deriving the
+		// texel from the ray/cube-plane intersection keeps placement and rendering consistent. This
+		// fixes non-full-cube blocks (iron bars, panes, slabs, stairs, fences, walls, …): the OUTLINE
+		// raycast hits their thin INNER voxel shape, so using the raw hit point (inset from the cube
+		// boundary) put the dot away from the crosshair, often shoved to the block's edge. For a full
+		// cube the ray meets the hit face exactly on the cube plane, so this is identical to the raw
+		// hit point — no change for normal blocks.
+		Direction face = forcedFace != null ? forcedFace : hitFace;
+		int[] uv = projectRayOntoFace(eyePos, direction, hit.getLocation(), blockPos, face);
+		int u = uv[0];
+		int v = uv[1];
 
 		Dot dot = new Dot(blockPos.getX(), blockPos.getY(), blockPos.getZ(), face, u, v, color.argb());
 		DotStore.add(worldKey, dot);
@@ -317,19 +314,22 @@ public final class DotCommands {
 	}
 
 	/**
-	 * Ray-plane intersection against the infinite plane containing {@code face} of the block at
-	 * {@code blockPos}, per SPEC.md 3.1's forced-face bullet: clamp the in-plane point to the
-	 * block's bounds, then derive the pixel from that intersection.
+	 * Derives the texel for a dot by intersecting the aim ray with the infinite plane containing
+	 * the full block-cube {@code face} of the block at {@code blockPos}, then clamping the in-plane
+	 * point to the block's bounds (SPEC.md 3.2). Used for BOTH the auto/hit face and a forced
+	 * {@code facing} — the renderer always draws on the full cube face, so placement must be
+	 * computed on that same plane. For a full block the ray meets the hit face exactly on the cube
+	 * plane, so this returns the same texel as the raw hit point; for non-full-cube blocks it
+	 * corrects the placement that the raw (inset) hit point would have produced.
 	 *
-	 * <p>The plane intersection is only used when the ray genuinely crosses the plane ahead of
-	 * the eye ({@code t > 1e-6}). If the plane lies behind the eye along the ray (e.g. forcing
-	 * {@code down} on a block whose bottom face is below eye level while looking upward), or the
-	 * ray is (near) parallel to the plane, the intersection point would be bogus — so instead the
-	 * ORIGINAL raycast hit location is projected orthogonally onto the forced face's plane (its
-	 * in-plane coordinates are kept; only the face-axis component is replaced), then clamped and
-	 * converted to a texel as usual. Both paths are well-defined placements, so both succeed.
+	 * <p>The plane intersection is only used when the ray genuinely crosses the plane ahead of the
+	 * eye ({@code t > 1e-6}). If the plane lies behind the eye along the ray, or the ray is (near)
+	 * parallel to the plane, the intersection point would be bogus — so instead the ORIGINAL
+	 * raycast hit location is projected orthogonally onto the face's plane (its in-plane coordinates
+	 * are kept; only the face-axis component is replaced), then clamped and converted to a texel as
+	 * usual. Both paths are well-defined placements, so both succeed.
 	 */
-	private static int[] intersectForcedFace(Vec3 origin, Vec3 direction, Vec3 hitLocation, BlockPos blockPos, Direction face) {
+	private static int[] projectRayOntoFace(Vec3 origin, Vec3 direction, Vec3 hitLocation, BlockPos blockPos, Direction face) {
 		Direction.Axis axis = face.getAxis();
 		boolean positive = face.getAxisDirection() == Direction.AxisDirection.POSITIVE;
 
