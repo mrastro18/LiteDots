@@ -1,0 +1,30 @@
+{
+	"schemaVersion": 1,
+	"id": "litedots",
+	"version": "${version}",
+	"name": "LiteDots",
+	"description": "Paint single-texel colored dots onto block faces.",
+	"authors": [
+		"santos"
+	],
+	"license": "CC0-1.0",
+	"icon": "assets/litedots/icon.png",
+	"environment": "client",
+	"entrypoints": {
+		"client": [
+			"dev.santos.litedots.LiteDotsClient"
+		]
+	},
+	"mixins": [
+		{
+			"config": "litedots.client.mixins.json",
+			"environment": "client"
+		}
+	],
+	"depends": {
+		"fabricloader": ">=0.19.3",
+		"minecraft": "~26.2",
+		"java": ">=25",
+		"fabric-api": "*"
+	}
+}
